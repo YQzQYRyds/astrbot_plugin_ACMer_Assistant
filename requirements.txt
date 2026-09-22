@@ -1,0 +1,4 @@
+aiohttp>=3.10,<4
+aiosqlite>=0.20,<1
+beautifulsoup4>=4.12,<5
+tzdata>=2024.1

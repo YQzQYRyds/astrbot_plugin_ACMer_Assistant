@@ -1,0 +1,6 @@
+name: astrbot_plugin_acmer_calendar
+display_name: ACMer 全网算法赛历
+desc: 聚合五个平台的公开赛历，支持多节点提醒、每日日报和持久化防重。
+version: v1.0.0
+author: ACMer Assistant
+astrbot_version: ">=4.9.2,<5"

@@ -1,0 +1,248 @@
+{
+  "target_groups": {
+    "type": "list",
+    "default": [],
+    "description": "启用的目标群号",
+    "hint": "填字符串群号；管理员需在该群执行 /绑定赛历，绑定真实会话。"
+  },
+  "target_sessions": {
+    "type": "list",
+    "default": [],
+    "description": "直接推送的会话标识",
+    "hint": "可填写 /赛历会话 返回的完整 unified_msg_origin，支持私聊。"
+  },
+  "advance_notice_minutes": {
+    "type": "list",
+    "default": [
+      60,
+      30
+    ],
+    "description": "提前提醒分钟数",
+    "hint": "可自由增删；空数组关闭赛前提醒。"
+  },
+  "daily_push_enabled": {
+    "type": "bool",
+    "default": true,
+    "description": "启用每日汇总"
+  },
+  "daily_push_time": {
+    "type": "string",
+    "default": "08:30",
+    "description": "日报时间",
+    "hint": "显示时区下的 HH:MM；保存后重载插件。"
+  },
+  "digest_days": {
+    "type": "int",
+    "default": 7,
+    "description": "展示天数",
+    "hint": "含今天，按本地日历日计算。",
+    "range": [
+      1,
+      30
+    ]
+  },
+  "enabled_platforms": {
+    "type": "list",
+    "default": [
+      "codeforces",
+      "atcoder",
+      "nowcoder",
+      "leetcode",
+      "luogu"
+    ],
+    "description": "平台白名单",
+    "hint": "使用小写平台代号；空数组停用全部平台。"
+  },
+  "sync_interval_minutes": {
+    "type": "int",
+    "default": 30,
+    "description": "同步间隔（分钟）",
+    "range": [
+      1,
+      1440
+    ]
+  },
+  "timezone": {
+    "type": "string",
+    "default": "Asia/Shanghai",
+    "description": "显示与日报时区",
+    "hint": "例如 Asia/Shanghai、UTC；比赛统一持久化为 UTC 秒。"
+  },
+  "scheduler_tick_seconds": {
+    "type": "int",
+    "default": 20,
+    "description": "提醒检查间隔（秒）",
+    "range": [
+      5,
+      300
+    ]
+  },
+  "reminder_catchup_minutes": {
+    "type": "int",
+    "default": 120,
+    "description": "赛前提醒补发窗口（分钟）",
+    "hint": "离线错过多个节点时，只补最近的已到期节点；开赛后不补。",
+    "range": [
+      1,
+      10080
+    ]
+  },
+  "daily_catchup_minutes": {
+    "type": "int",
+    "default": 180,
+    "description": "当日日报补发窗口（分钟）",
+    "hint": "不补往日日报。",
+    "range": [
+      1,
+      1439
+    ]
+  },
+  "cache_max_age_hours": {
+    "type": "int",
+    "default": 24,
+    "description": "缓存最大可信时长（小时）",
+    "hint": "过期缓存可查询但标记过期，不参与自动推送。",
+    "range": [
+      1,
+      168
+    ]
+  },
+  "request_timeout_seconds": {
+    "type": "int",
+    "default": 20,
+    "description": "单次请求超时（秒）",
+    "range": [
+      1,
+      120
+    ]
+  },
+  "http_retries": {
+    "type": "int",
+    "default": 2,
+    "description": "HTTP 额外重试次数",
+    "range": [
+      0,
+      5
+    ]
+  },
+  "retry_base_seconds": {
+    "type": "int",
+    "default": 2,
+    "description": "HTTP 退避基数（秒）",
+    "range": [
+      1,
+      30
+    ]
+  },
+  "trust_env_proxy": {
+    "type": "bool",
+    "default": false,
+    "description": "使用环境变量代理",
+    "hint": "开启后 aiohttp 读取 HTTP_PROXY / HTTPS_PROXY。"
+  },
+  "max_response_bytes": {
+    "type": "int",
+    "default": 8000000,
+    "description": "单次响应大小上限（字节）",
+    "range": [
+      100000,
+      30000000
+    ]
+  },
+  "send_timeout_seconds": {
+    "type": "int",
+    "default": 30,
+    "description": "单条消息发送超时（秒）",
+    "range": [
+      1,
+      120
+    ]
+  },
+  "send_retry_seconds": {
+    "type": "int",
+    "default": 60,
+    "description": "发送失败后的重试间隔（秒）",
+    "range": [
+      5,
+      3600
+    ]
+  },
+  "send_max_attempts": {
+    "type": "int",
+    "default": 5,
+    "description": "单条消息最大发送尝试次数",
+    "range": [
+      1,
+      20
+    ]
+  },
+  "uncertain_delivery_policy": {
+    "type": "string",
+    "default": "hold",
+    "description": "发送结果不确定时的恢复策略",
+    "hint": "hold：暂停该条并等待管理员处置；retry：允许重发，可能产生重复。",
+    "options": [
+      "hold",
+      "retry"
+    ]
+  },
+  "message_max_chars": {
+    "type": "int",
+    "default": 1800,
+    "description": "单条消息字符上限",
+    "hint": "日报自动分段，每段分别持久化防重。",
+    "range": [
+      400,
+      10000
+    ]
+  },
+  "state_retention_days": {
+    "type": "int",
+    "default": 45,
+    "description": "通知记录过期后的保留天数",
+    "range": [
+      7,
+      365
+    ]
+  },
+  "luogu_max_pages": {
+    "type": "int",
+    "default": 3,
+    "description": "洛谷最多获取页数",
+    "hint": "默认读取公开精选赛；提高页数可扩大范围。",
+    "range": [
+      1,
+      20
+    ]
+  },
+  "codeforces_url": {
+    "type": "string",
+    "default": "https://codeforces.com/api/contest.list?gym=false",
+    "description": "codeforces 数据源地址",
+    "hint": "替换地址时必须提供兼容该平台解析器的数据格式。"
+  },
+  "atcoder_url": {
+    "type": "string",
+    "default": "https://atcoder.jp/contests/",
+    "description": "atcoder 数据源地址",
+    "hint": "替换地址时必须提供兼容该平台解析器的数据格式。"
+  },
+  "nowcoder_url": {
+    "type": "string",
+    "default": "https://ac.nowcoder.com/acm/contest/vip-index",
+    "description": "nowcoder 数据源地址",
+    "hint": "替换地址时必须提供兼容该平台解析器的数据格式。"
+  },
+  "leetcode_url": {
+    "type": "string",
+    "default": "https://leetcode.cn/graphql/",
+    "description": "leetcode 数据源地址",
+    "hint": "替换地址时必须提供兼容该平台解析器的数据格式。"
+  },
+  "luogu_url": {
+    "type": "string",
+    "default": "https://www.luogu.com.cn/contest/list?type=SCP",
+    "description": "luogu 数据源地址",
+    "hint": "替换地址时必须提供兼容该平台解析器的数据格式。"
+  }
+}
