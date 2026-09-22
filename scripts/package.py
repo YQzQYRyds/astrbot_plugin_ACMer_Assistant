@@ -4,7 +4,7 @@ from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
 root = Path(__file__).resolve().parents[1]
-output = root / "dist" / "astrbot_plugin_acmer_calendar.zip"
+output = root / "dist" / "astrbot_plugin_acmer_assistant.zip"
 output.parent.mkdir(exist_ok=True)
 files = [
     root / name
@@ -15,6 +15,7 @@ files = [
         "requirements.txt",
         "README.md",
         "LICENSE",
+        "scripts/migrate_config.py",
     )
 ]
 files.extend((root / "calendar_core").glob("*.py"))

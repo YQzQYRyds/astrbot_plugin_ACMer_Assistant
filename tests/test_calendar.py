@@ -42,7 +42,7 @@ class FakeFetchers:
 async def setup(tmp_path, overrides=None, sender=None, rows=None):
     config = Settings(
         {
-            "target_sessions": [TARGET],
+            "target_groups": ["123"],
             "enabled_platforms": ["codeforces"],
             "daily_push_enabled": False,
             **(overrides or {}),
@@ -61,7 +61,12 @@ async def setup(tmp_path, overrides=None, sender=None, rows=None):
         sent.append((target, body))
         return True
 
-    scheduler = Scheduler(config, store, service, sender or send, logging.getLogger("test"))
+    async def targets():
+        return (overrides or {}).get("test_targets", [TARGET])
+
+    scheduler = Scheduler(
+        config, store, service, sender or send, logging.getLogger("test"), targets
+    )
     return config, store, service, scheduler, sent
 
 
@@ -77,7 +82,6 @@ async def setup(tmp_path, overrides=None, sender=None, rows=None):
         {"target_groups": [123]},
         {"sync_interval_minutes": True},
         {"daily_push_enabled": "false"},
-        {"target_sessions": ["123"]},
         {"uncertain_delivery_policy": "magic"},
     ],
 )
@@ -175,7 +179,7 @@ def test_formatting_date_boundaries():
     config = Settings({"digest_days": 2})
     rows = [contest(60), contest(24 * 60, "tomorrow"), contest(48 * 60, "excluded")]
     body = "\n".join(digest(rows, NOW, config))
-    assert "今天" in body and "明天" in body
+    assert "📅 01-02（周三）" in body and "\n\n📅 01-03（周四）" in body
     assert body.count("Test Round") == 2
     assert "09:30" in reminder(rows[0], NOW, config)
     assert all(len(p) <= 400 for p in split_message("a" * 1900 + "\nb", 400))
@@ -223,7 +227,7 @@ async def test_targets_independent_and_retry_false(tmp_path):
         return True
 
     _, store, _, scheduler, _ = await setup(
-        tmp_path, {"target_sessions": [TARGET, "z:GroupMessage:2"]}, sender=send, rows=[contest()]
+        tmp_path, {"test_targets": [TARGET, "z:GroupMessage:2"]}, sender=send, rows=[contest()]
     )
     try:
         await scheduler.tick(NOW)
@@ -336,19 +340,6 @@ async def test_concurrent_query_refresh_coalesced(tmp_path):
     try:
         await asyncio.gather(service.refresh(), service.refresh(), service.refresh())
         assert service.fetchers.calls == 1
-    finally:
-        await store.close()
-
-
-async def test_binding_only_whitelisted_groups(tmp_path):
-    config, store, _, _, _ = await setup(
-        tmp_path, {"target_sessions": [], "target_groups": ["123"]}
-    )
-    try:
-        assert await store.targets(config) == []
-        await store.bind("123", TARGET)
-        await store.bind("456", "other:GroupMessage:456")
-        assert await store.targets(config) == [TARGET]
     finally:
         await store.close()
 

@@ -22,8 +22,9 @@ class Store:
             CREATE TABLE IF NOT EXISTS snapshots (
                 platform TEXT PRIMARY KEY, updated REAL NOT NULL, data TEXT NOT NULL
             );
-            CREATE TABLE IF NOT EXISTS bindings (
-                group_id TEXT PRIMARY KEY, target TEXT NOT NULL
+            CREATE TABLE IF NOT EXISTS group_routes (
+                group_id TEXT NOT NULL, platform_id TEXT NOT NULL, target TEXT NOT NULL,
+                PRIMARY KEY (group_id, platform_id)
             );
             CREATE TABLE IF NOT EXISTS notified_events (
                 key TEXT PRIMARY KEY, target TEXT NOT NULL, payload TEXT NOT NULL,
@@ -53,18 +54,27 @@ class Store:
             )
             await self.db.commit()
 
-    async def bind(self, group, target):
+    async def remember_route(self, group, platform_id, target):
         async with self.lock:
-            await self.db.execute("INSERT OR REPLACE INTO bindings VALUES (?,?)", (group, target))
+            await self.db.execute(
+                "INSERT OR REPLACE INTO group_routes VALUES (?,?,?)", (group, platform_id, target)
+            )
             await self.db.commit()
 
-    async def targets(self, config):
+    async def replace_routes(self, platform_id, routes):
+        """成功获取群列表后替换该机器人的路由；失败时调用方保留旧值。"""
         async with self.lock:
-            async with self.db.execute("SELECT * FROM bindings") as cursor:
-                bound = {r["group_id"]: r["target"] for r in await cursor.fetchall()}
-        targets = set(config.target_sessions)
-        targets.update(bound[g] for g in config.target_groups if g in bound)
-        return sorted(targets)
+            await self.db.execute("DELETE FROM group_routes WHERE platform_id=?", (platform_id,))
+            await self.db.executemany(
+                "INSERT INTO group_routes VALUES (?,?,?)",
+                [(group, platform_id, target) for group, target in routes.items()],
+            )
+            await self.db.commit()
+
+    async def routes(self):
+        async with self.lock:
+            async with self.db.execute("SELECT * FROM group_routes ORDER BY platform_id") as cursor:
+                return [dict(row) for row in await cursor.fetchall()]
 
     async def enqueue(self, jobs):
         # 一次提交整个日报，重启后保持原始分页，避免数据变化引起重复或漏页。

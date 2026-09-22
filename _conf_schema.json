@@ -1,15 +1,9 @@
 {
-  "target_groups": {
+  "enabled_session_ids": {
     "type": "list",
     "default": [],
-    "description": "启用的目标群号",
-    "hint": "填字符串群号；管理员需在该群执行 /绑定赛历，绑定真实会话。"
-  },
-  "target_sessions": {
-    "type": "list",
-    "default": [],
-    "description": "直接推送的会话标识",
-    "hint": "可填写 /赛历会话 返回的完整 unified_msg_origin，支持私聊。"
+    "description": "启用的会话 ID",
+    "hint": "群聊填 group:群号（旧版纯群号也支持）；私聊填 private:用户ID；也可填 平台实例ID:GroupMessage:群号 或 平台实例ID:FriendMessage:用户ID。填写启用，移除停用，无需绑定。"
   },
   "advance_notice_minutes": {
     "type": "list",
@@ -41,17 +35,45 @@
       30
     ]
   },
-  "enabled_platforms": {
-    "type": "list",
-    "default": [
-      "codeforces",
-      "atcoder",
-      "nowcoder",
-      "leetcode",
-      "luogu"
-    ],
-    "description": "平台白名单",
-    "hint": "使用小写平台代号；空数组停用全部平台。"
+  "digest_max_contests": {
+    "type": "int",
+    "default": 10,
+    "description": "最多显示比赛数量",
+    "hint": "按开赛时间显示最近的 N 项；范围 1–100。相同轮次的 CF Div.1/Div.2 合并为一项。仅影响赛历展示，不影响赛前提醒。",
+    "range": [
+      1,
+      100
+    ]
+  },
+  "enable_codeforces": {
+    "type": "bool",
+    "default": true,
+    "description": "启用 Codeforces",
+    "hint": "关闭后不抓取、不展示、不发送该平台提醒。"
+  },
+  "enable_atcoder": {
+    "type": "bool",
+    "default": true,
+    "description": "启用 AtCoder",
+    "hint": "关闭后不抓取、不展示、不发送该平台提醒。"
+  },
+  "enable_nowcoder": {
+    "type": "bool",
+    "default": true,
+    "description": "启用 牛客",
+    "hint": "关闭后不抓取、不展示、不发送该平台提醒。"
+  },
+  "enable_leetcode": {
+    "type": "bool",
+    "default": true,
+    "description": "启用 LeetCode",
+    "hint": "关闭后不抓取、不展示、不发送该平台提醒。"
+  },
+  "enable_luogu": {
+    "type": "bool",
+    "default": true,
+    "description": "启用 洛谷",
+    "hint": "关闭后不抓取、不展示、不发送该平台提醒。"
   },
   "sync_interval_minutes": {
     "type": "int",

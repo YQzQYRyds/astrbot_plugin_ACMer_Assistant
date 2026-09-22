@@ -1,0 +1,22 @@
+🏆 【近期算法赛事周报】
+
+📅 09-25（周五）
+• [AtCoder] AHC 072
+⏰ 18:00（时长 10天/240h）
+🔗 https://atcoder.jp/contests/ahc072
+
+• [牛客] 牛客挑战赛92
+⏰ 19:00（时长 3小时）
+🔗 https://ac.nowcoder.com/acm/contest/140237
+
+📅 09-26（周六）
+• [AtCoder] ABC 477
+⏰ 20:00（时长 1小时40分）
+🔗 https://atcoder.jp/contests/abc477
+
+• [Codeforces] Round 1124
+⏰ 22:35（时长 2小时30分）
+🔗 Div.1: https://codeforces.com/contest/2268
+🔗 Div.2: https://codeforces.com/contest/2269
+
+💡 记得提前报名参赛，祝大家把把上分、轻松 AC！

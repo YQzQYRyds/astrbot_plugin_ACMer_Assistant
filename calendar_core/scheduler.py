@@ -15,10 +15,11 @@ def target_key(target):
 
 
 class Scheduler:
-    def __init__(self, config, store, service, sender, logger):
+    def __init__(self, config, store, service, sender, logger, targets):
         self.config, self.store, self.service = config, store, service
         self.sender, self.logger = sender, logger
         self.tick_lock = asyncio.Lock()
+        self.targets = targets
 
     async def deliver(self, row, now, payload=None):
         # 多目标发送可能耗时较长，每条发送前重新检查有效期。
@@ -52,7 +53,7 @@ class Scheduler:
         async with self.tick_lock:
             now = now or datetime.now(timezone.utc)
             stamp = now.timestamp()
-            targets = await self.store.targets(self.config)
+            targets = await self.targets()
             contests = self.service.contests(stamp, trusted_only=True)
             for contest in contests:
                 remaining = (contest.start_time - stamp) / 60
