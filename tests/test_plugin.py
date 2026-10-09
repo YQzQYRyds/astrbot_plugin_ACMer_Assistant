@@ -124,6 +124,13 @@ async def test_unlisted_groups_and_private_chats_are_silent(plugin_class, group)
     event = types.SimpleNamespace(get_group_id=lambda: group)
     for handler, args in (
         ("calendar", ()),
+        ("help", ()),
+        ("show_settings", ()),
+        ("set_scope", ()),
+        ("set_platforms", ()),
+        ("block", ()),
+        ("unblock", ()),
+        ("reset", ()),
         ("refresh", ()),
         ("status", ()),
         ("resolve", ("key", "retry")),
@@ -137,10 +144,62 @@ async def test_listed_group_can_query_without_binding(plugin_class):
     async def refresh():
         calls.append("refresh")
 
+    async def settings(session):
+        return {}
+
     plugin = plugin_class(object(), {"target_groups": ["123"]})
     plugin.service = types.SimpleNamespace(
         refresh=refresh, contests=lambda _: [], notes=lambda _: ""
     )
-    event = types.SimpleNamespace(get_group_id=lambda: "123", plain_result=lambda text: text)
+    plugin.store = types.SimpleNamespace(settings=settings)
+    event = types.SimpleNamespace(
+        get_group_id=lambda: "123", message_str="赛历", plain_result=lambda text: text
+    )
     result = [r async for r in plugin.calendar(event)]
     assert calls == ["refresh"] and "近期算法赛事周报" in result[0]
+
+
+def member(role="member", sender="1", text="", group="123", admin=False):
+    raw = {"sender": {"user_id": sender, "role": role}}
+    return types.SimpleNamespace(
+        get_group_id=lambda: group,
+        get_sender_id=lambda: sender,
+        is_admin=lambda: admin,
+        message_str=text,
+        message_obj=types.SimpleNamespace(raw_message=raw),
+        plain_result=lambda text: text,
+    )
+
+
+async def test_group_settings_permissions_and_overrides(plugin_class, tmp_path):
+    from plugin_test.calendar_core.storage import Store
+
+    plugin = plugin_class(object(), {"target_groups": ["123"], "settings_admin_ids": ["42"]})
+    plugin.store = Store(tmp_path / "settings.sqlite3")
+    await plugin.store.open("hold")
+    try:
+        refused = [r async for r in plugin.set_scope(member(text="赛历范围 新手"))]
+        assert "只有群主" in refused[0]
+        for event in (
+            member("admin", text="赛历范围 新手"),
+            member("owner", text="赛历范围 新手"),
+            member(sender="42", text="赛历范围 新手"),
+            member(admin=True, text="赛历范围 新手"),
+        ):
+            result = [r async for r in plugin.set_scope(event)]
+            assert "推送范围：新手（本群）" in result[0]
+        bad = [r async for r in plugin.set_scope(member("admin", text="赛历范围 随便"))]
+        assert "用法" in bad[0]
+        result = [r async for r in plugin.set_platforms(member("admin", text="赛历平台 CF atc"))]
+        assert "平台：Codeforces、AtCoder（本群）" in result[0]
+        result = [r async for r in plugin.block(member("admin", text="赛历屏蔽 AHC ARC"))]
+        assert "屏蔽关键词：AHC、ARC（本群）" in result[0]
+        result = [r async for r in plugin.unblock(member("admin", text="赛历取消屏蔽 ARC"))]
+        assert "屏蔽关键词：AHC（本群）" in result[0]
+        other = [r async for r in plugin.show_settings(member(group="999"))]
+        assert other == []  # 未启用的群不响应
+        result = [r async for r in plugin.reset(member("admin"))]
+        assert "推送范围：全部（后台默认）" in result[0]
+        assert "/赛历范围" in [r async for r in plugin.help(member())][0]
+    finally:
+        await plugin.store.close()

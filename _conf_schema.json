@@ -5,19 +5,85 @@
     "description": "启用的会话 ID",
     "hint": "群聊填 group:群号（旧版纯群号也支持）；私聊填 private:用户ID；也可填 平台实例ID:GroupMessage:群号 或 平台实例ID:FriendMessage:用户ID。填写启用，移除停用，无需绑定。"
   },
+  "settings_admin_ids": {
+    "type": "list",
+    "default": [],
+    "description": "可修改群设置的用户 ID",
+    "hint": "除群管理员、群主和 AstrBot 管理员外，这些用户（如 QQ 号）也能在群里用 /赛历范围 等指令修改本群设置。"
+  },
+  "default_scope": {
+    "type": "string",
+    "default": "all",
+    "description": "默认推送范围",
+    "hint": "all：全部比赛；beginner：只推新手友好比赛（规则见下方“新手比赛规则”）。各群可用 /赛历范围 单独覆盖。",
+    "options": [
+      "all",
+      "beginner"
+    ]
+  },
+  "default_blocked_keywords": {
+    "type": "list",
+    "default": [],
+    "description": "默认屏蔽关键词",
+    "hint": "标题或比赛 ID 含这些关键词的比赛不推送也不展示（忽略大小写、空格和点），例如 AHC。各群可用 /赛历屏蔽 单独覆盖。"
+  },
+  "beginner_include": {
+    "type": "list",
+    "default": [
+      "codeforces:Div. 2",
+      "codeforces:Div. 3",
+      "codeforces:Div. 4",
+      "codeforces:Educational",
+      "atcoder:abc",
+      "atcoder:Beginner Contest",
+      "nowcoder:小白月赛",
+      "nowcoder:周赛",
+      "leetcode:周赛"
+    ],
+    "description": "新手比赛规则：包含",
+    "hint": "格式 平台:关键词，平台为 codeforces/atcoder/nowcoder/leetcode/luogu。新手范围只保留命中任一关键词的比赛；没有规则的平台在新手范围下不推送。"
+  },
+  "beginner_exclude": {
+    "type": "list",
+    "default": [
+      "codeforces:Div. 1"
+    ],
+    "description": "新手比赛规则：排除",
+    "hint": "格式同上，命中即排除，优先于包含规则。默认排除 CF Div.1 和 Div.1+2 合场。"
+  },
   "advance_notice_minutes": {
     "type": "list",
     "default": [
-      60,
-      30
+      60
     ],
     "description": "提前提醒分钟数",
-    "hint": "可自由增删；空数组关闭赛前提醒。"
+    "hint": "可自由增删，例如 [60, 15]；空数组关闭赛前提醒。时长超过“长期赛阈值”的比赛不提醒。"
+  },
+  "reminder_merge_minutes": {
+    "type": "int",
+    "default": 15,
+    "description": "提醒合并窗口（分钟）",
+    "hint": "开赛时间相差不超过该值的比赛合并为一条提醒；0 表示不合并。",
+    "range": [
+      0,
+      120
+    ]
+  },
+  "long_contest_hours": {
+    "type": "int",
+    "default": 24,
+    "description": "长期赛阈值（小时）",
+    "hint": "时长超过该值的比赛（如 AHC）标注“长期赛”，不发赛前提醒，也不列入日报的“今日开赛”。",
+    "range": [
+      1,
+      720
+    ]
   },
   "daily_push_enabled": {
     "type": "bool",
     "default": true,
-    "description": "启用每日汇总"
+    "description": "启用每日日报",
+    "hint": "只推本群还没见过的新比赛和今天开赛的比赛，都没有就不发；同一场比赛不会每天重复出现。"
   },
   "daily_push_time": {
     "type": "string",
@@ -28,8 +94,8 @@
   "digest_days": {
     "type": "int",
     "default": 7,
-    "description": "展示天数",
-    "hint": "含今天，按本地日历日计算。",
+    "description": "赛历天数",
+    "hint": "含今天，按本地日历日计算。/赛历 展示这么多天；日报只把这个范围内的比赛当作新比赛推送，更远的比赛进入范围那天再推。",
     "range": [
       1,
       30
@@ -39,7 +105,7 @@
     "type": "int",
     "default": 10,
     "description": "最多显示比赛数量",
-    "hint": "按开赛时间显示最近的 N 项；范围 1–100。相同轮次的 CF Div.1/Div.2 合并为一项。仅影响赛历展示，不影响赛前提醒。",
+    "hint": "/赛历 按开赛时间显示最近的 N 项；范围 1–100。相同轮次的 CF Div.1/Div.2 合并为一项。不影响日报和赛前提醒。",
     "range": [
       1,
       100

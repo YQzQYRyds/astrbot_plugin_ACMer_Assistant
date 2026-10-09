@@ -186,12 +186,13 @@ def test_formatting_date_boundaries():
 
 
 async def test_restart_dedup_and_two_thresholds(tmp_path):
-    _, store, _, scheduler, sent = await setup(tmp_path, rows=[contest()])
+    options = {"advance_notice_minutes": [60, 30]}
+    _, store, _, scheduler, sent = await setup(tmp_path, options, rows=[contest()])
     await scheduler.tick(NOW)
     await scheduler.tick(NOW + timedelta(seconds=20))
     assert len(sent) == 1
     await store.close()
-    _, store, _, scheduler, sent = await setup(tmp_path)
+    _, store, _, scheduler, sent = await setup(tmp_path, options)
     try:
         await scheduler.tick(NOW + timedelta(seconds=40))
         assert not sent
@@ -420,5 +421,135 @@ async def test_recovered_attempt_budget_becomes_actionable(tmp_path):
     try:
         assert not await store.claim("one", NOW.timestamp(), 1)
         assert (await store.unresolved())[0]["status"] == "failed"
+    finally:
+        await store.close()
+
+
+def named(minutes, id, title, platform="codeforces", hours=2):
+    return Contest(
+        id,
+        platform,
+        title,
+        int(NOW.timestamp() + minutes * 60),
+        hours * 3600,
+        f"https://example.com/{platform}/{id}",
+    )
+
+
+async def daily_setup(tmp_path, rows, overrides=None):
+    options = {"daily_push_enabled": True, "advance_notice_minutes": [], **(overrides or {})}
+    return await setup(tmp_path, options, rows=rows)
+
+
+# NOW 是 Asia/Shanghai 08:30，即默认日报时间。
+async def test_upgrade_is_silent_and_daily_only_pushes_new_and_today(tmp_path):
+    existing = named(3 * 24 * 60, "1", "Codeforces Round 1 (Div. 2)")
+    tonight = named(14 * 60, "2", "Codeforces Round 2 (Div. 2)")
+    _, store, service, scheduler, sent = await daily_setup(tmp_path, [existing, tonight])
+    try:
+        await scheduler.tick(NOW)
+        # 升级/新启用：已有比赛静默记录，只有今天开赛的出现在“今日开赛”。
+        assert len(sent) == 1
+        assert "🆕" not in sent[0][1] and "🔥 今日开赛" in sent[0][1]
+        assert "Round 2" in sent[0][1] and "Round 1 " not in sent[0][1]
+        fresh = named(2 * 24 * 60, "3", "Codeforces Round 3 (Div. 2)")
+        far = named(20 * 24 * 60, "4", "Codeforces Round 4 (Div. 2)")
+        rows = [existing, fresh, far]
+        service.snapshots["codeforces"] = (NOW.timestamp() + 86400, rows)
+        await scheduler.tick(NOW + timedelta(days=1))
+        assert len(sent) == 2
+        body = sent[1][1]
+        assert "🆕 新上架比赛" in body and "Round 3" in body
+        assert "Round 1 " not in body and "Round 4" not in body
+        # 第三天没有新比赛也没有当天比赛：不发。
+        service.snapshots["codeforces"] = (NOW.timestamp() + 2 * 86400, rows)
+        await scheduler.tick(NOW + timedelta(days=2))
+        assert len(sent) == 2
+    finally:
+        await store.close()
+
+
+async def test_daily_marks_reschedule(tmp_path):
+    first = named(3 * 24 * 60, "1", "Codeforces Round 1 (Div. 2)")
+    _, store, service, scheduler, sent = await daily_setup(tmp_path, [first])
+    try:
+        await scheduler.tick(NOW)
+        assert not sent
+        moved = named(4 * 24 * 60, "1", "Codeforces Round 1 (Div. 2)")
+        service.snapshots["codeforces"] = (NOW.timestamp() + 86400, [moved])
+        await scheduler.tick(NOW + timedelta(days=1))
+        assert "⚠️ 时间变更" in sent[0][1]
+    finally:
+        await store.close()
+
+
+async def test_long_contests_labelled_not_reminded(tmp_path):
+    ahc = named(60, "ahc072", "AtCoder Heuristic Contest 072", "codeforces", hours=240)
+    _, store, service, scheduler, sent = await setup(tmp_path, rows=[ahc])
+    try:
+        await scheduler.tick(NOW)
+        assert not sent
+    finally:
+        await store.close()
+    rows = [ahc, named(3 * 24 * 60, "9", "Round 9")]
+    _, store, _, scheduler, sent = await daily_setup(tmp_path / "b", rows)
+    try:
+        await store.baseline("group:123", "codeforces", [], NOW.timestamp())
+        await scheduler.tick(NOW)
+        assert "（长期赛）" in sent[0][1] and "🔥" not in sent[0][1]
+    finally:
+        await store.close()
+
+
+async def test_close_reminders_merge_and_never_repeat(tmp_path):
+    rows = [
+        named(60, "1", "Codeforces Round 7 (Div. 1)"),
+        named(60, "2", "Codeforces Round 7 (Div. 2)"),
+        named(70, "3", "Other Round"),
+        named(120, "4", "Late Round"),
+    ]
+    _, store, _, scheduler, sent = await setup(tmp_path, rows=rows)
+    try:
+        await scheduler.tick(NOW)
+        assert len(sent) == 1
+        body = sent[0][1]
+        assert "约 60 分钟后开赛" in body and body.count("•") == 2
+        assert "Div.1: https://example.com/codeforces/1" in body and "Other Round" in body
+        jobs = {r["key"].split("|")[1]: r for r in await store.jobs("notice|")}
+        assert jobs[rows[0].key]["expires"] == rows[2].start_time
+        assert jobs[rows[2].key]["status"] == "merged"
+        await scheduler.tick(NOW + timedelta(minutes=10))
+        assert len(sent) == 1  # Other Round 已并入，不再单独提醒
+        await scheduler.tick(NOW + timedelta(minutes=60))
+        assert len(sent) == 2 and "Late Round" in sent[1][1] and "【赛事提醒】\n" in sent[1][1]
+    finally:
+        await store.close()
+
+
+async def test_beginner_scope_and_group_overrides(tmp_path):
+    rows = [
+        named(60, "1", "Codeforces Round 1 (Div. 1)"),
+        named(60, "2", "Codeforces Round 2 (Div. 1 + Div. 2)"),
+        named(60, "3", "Educational Codeforces Round 3 (Rated for Div. 2)"),
+        named(60, "abc477", "AtCoder Beginner Contest 477", "atcoder"),
+        named(60, "agc070", "AtCoder Grand Contest 070", "atcoder"),
+    ]
+    config, store, service, scheduler, sent = await setup(
+        tmp_path, {"enabled_platforms": ["codeforces", "atcoder"], "default_scope": "beginner"}
+    )
+    try:
+        service.snapshots["codeforces"] = (NOW.timestamp(), rows[:3])
+        service.snapshots["atcoder"] = (NOW.timestamp(), rows[3:])
+        await scheduler.tick(NOW)
+        body = sent[0][1]
+        assert "Educational" in body and "ABC 477" in body
+        assert "Round 1 " not in body and "Round 2" not in body and "AGC" not in body
+        await store.set_setting("group:123", "scope", "all")
+        await store.set_setting("group:123", "blocked", ["AGC"])
+        from calendar_core.preferences import load
+
+        prefs = await load(store, config, "group:123")
+        assert [c.id for c in prefs.filter(rows)] == ["1", "2", "3", "abc477"]
+        assert "（本群）" in prefs.describe()
     finally:
         await store.close()
