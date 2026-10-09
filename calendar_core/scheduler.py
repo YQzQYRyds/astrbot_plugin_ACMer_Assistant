@@ -3,7 +3,11 @@ import hashlib
 import time
 from datetime import datetime, timedelta, timezone
 
-from .formatting import digest, reminder
+from .formatting import daily, reminders
+from .preferences import is_long, session_key
+from .preferences import load as load_preferences
+
+TODAY_UNTIL_HOUR = 6
 
 
 class DeliveryRejected(Exception):
@@ -55,28 +59,71 @@ class Scheduler:
             stamp = now.timestamp()
             targets = await self.targets()
             contests = self.service.contests(stamp, trusted_only=True)
-            for contest in contests:
-                remaining = (contest.start_time - stamp) / 60
-                due = [
-                    m
-                    for m in self.config.advance_notice_minutes
-                    if 0 < remaining <= m and m - remaining <= self.config.reminder_catchup_minutes
-                ]
-                if not due:
-                    continue
-                # 多个节点均已错过时只处理最近节点，旧节点永远不会随后补刷。
-                minute = min(due)
-                body = reminder(contest, now, self.config)
-                for target in targets:
-                    key = f"notice|{contest.key}|{minute}|{target_key(target)}"
-                    await self.store.enqueue([(key, target, body, contest.start_time)])
-                    rows = await self.store.jobs(key)
-                    for row in rows:
-                        await self.deliver(row, stamp, body)
-            await self.daily(now, targets, contests)
+            for target in targets:
+                session = session_key(target)
+                prefs = await load_preferences(self.store, self.config, session)
+                await self.baseline(session, stamp)
+                await self.remind(target, prefs.filter(contests), now)
+                await self.daily(now, target, session, prefs.filter(contests))
             await self.store.cleanup(stamp - self.config.state_retention_days * 86400)
 
-    async def daily(self, now, targets, contests):
+    async def baseline(self, session, stamp):
+        """会话首次出现（新启用或从旧版升级）时静默记下窗口内已有比赛，不补推旧赛历。"""
+        done = await self.store.baselined(session)
+        for platform in self.config.enabled_platforms:
+            snapshot = self.service.snapshots.get(platform)
+            if platform in done or snapshot is None:
+                continue
+            rows = [c for c in snapshot[1] if c.start_time > stamp]
+            await self.store.baseline(session, platform, self.window(rows, stamp), stamp)
+
+    def window(self, contests, stamp):
+        today = datetime.fromtimestamp(stamp, self.config.zone).date()
+        end = today + timedelta(days=self.config.digest_days)
+        return [c for c in contests if c.local_start(self.config.zone).date() < end]
+
+    async def remind(self, target, contests, now):
+        stamp = now.timestamp()
+        tk = target_key(target)
+        eligible = [c for c in contests if not is_long(c, self.config)]
+        due = []
+        for contest in eligible:
+            remaining = (contest.start_time - stamp) / 60
+            minutes = [
+                m
+                for m in self.config.advance_notice_minutes
+                if 0 < remaining <= m and m - remaining <= self.config.reminder_catchup_minutes
+            ]
+            # 多个节点均已错过时只处理最近节点，旧节点永远不会随后补刷。
+            if minutes:
+                due.append((contest, min(minutes)))
+        handled = set()
+        window = self.config.reminder_merge_minutes * 60
+        for contest, minute in due:
+            if contest.key in handled:
+                continue
+            key = f"notice|{contest.key}|{minute}|{tk}"
+            if key not in await self.store.existing([key]):
+                # 同一节点下开赛时间接近、尚未提醒的比赛并入这一条，其余各自记占位防重。
+                group = [
+                    c
+                    for c in eligible
+                    if 0 <= c.start_time - contest.start_time <= window and c.key not in handled
+                ]
+                others = {f"notice|{c.key}|{minute}|{tk}": c for c in group if c is not contest}
+                taken = await self.store.existing(list(others))
+                group = [c for c in group if f"notice|{c.key}|{minute}|{tk}" not in taken]
+                body = reminders(group, now, self.config)
+                await self.store.enqueue([(key, target, body, contest.start_time)])
+                await self.store.mark(
+                    [(k, target, c.start_time) for k, c in others.items() if k not in taken]
+                )
+                handled.update(c.key for c in group)
+            handled.add(contest.key)
+            for row in await self.store.jobs(key):
+                await self.deliver(row, stamp)
+
+    async def daily(self, now, target, session, contests):
         if not self.config.daily_push_enabled or not self.service.has_trusted_data(now.timestamp()):
             return
         local = now.astimezone(self.config.zone)
@@ -89,18 +136,37 @@ class Scheduler:
             scheduled.timestamp() + self.config.daily_catchup_minutes * 60,
             (scheduled + timedelta(days=1)).replace(hour=0, minute=0).timestamp(),
         )
-        for target in targets:
-            prefix = f"daily|{local.date()}|{target_key(target)}|"
-            if not await self.store.exists_prefix(prefix):
-                pages = digest(contests, now, self.config, self.service.notes(now.timestamp()))
-                await self.store.enqueue(
-                    [
-                        (prefix + str(i).zfill(4), target, body, expires)
-                        for i, body in enumerate(pages)
-                    ]
-                )
-            for row in await self.store.jobs(prefix):
-                await self.deliver(row, now.timestamp())
+        prefix = f"daily|{local.date()}|{target_key(target)}|"
+        if not await self.store.exists_prefix(prefix):
+            seen = await self.store.seen(session)
+            new = [
+                c
+                for c in self.window(contests, now.timestamp())
+                if seen.get(f"{c.platform}:{c.id}") != c.start_time
+            ]
+            changed = {f"{c.platform}:{c.id}" for c in new if f"{c.platform}:{c.id}" in seen}
+            # “今天”延长到次日 06:00，深夜开赛的场次也算进当天早上的日报。
+            until = (scheduled + timedelta(days=1)).replace(hour=TODAY_UNTIL_HOUR, minute=0)
+            fresh = {c.key for c in new}
+            today = [
+                c
+                for c in contests
+                if c.start_time <= until.timestamp()
+                and c.key not in fresh
+                and not is_long(c, self.config)
+            ]
+            pages = daily(
+                new, today, now, self.config, self.service.notes(now.timestamp()), changed
+            )
+            # 没有内容也写一条已完成记录，当天不再反复计算或迟到补发。
+            jobs = [
+                (prefix + str(i).zfill(4), target, body, expires) for i, body in enumerate(pages)
+            ]
+            await self.store.enqueue_daily(
+                jobs or [(prefix + "empty", target, "", expires)], session, new
+            )
+        for row in await self.store.jobs(prefix):
+            await self.deliver(row, now.timestamp())
 
     async def run(self):
         while True:

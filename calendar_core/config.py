@@ -7,6 +7,12 @@ from zoneinfo import ZoneInfo
 
 from .models import PLATFORMS
 
+
+def normalize(text):
+    """关键词匹配忽略大小写、空白和点号：Div.2、Div. 2、div 2 等价。"""
+    return re.sub(r"[\s.]+", "", str(text)).casefold()
+
+
 SCHEMA = json.loads((Path(__file__).parents[1] / "_conf_schema.json").read_text("utf-8"))
 
 
@@ -79,6 +85,26 @@ class Settings:
             raise ValueError("daily_push_time 必须为 HH:MM")
         if values["uncertain_delivery_policy"] not in {"hold", "retry"}:
             raise ValueError("uncertain_delivery_policy 必须为 hold 或 retry")
+        if values["default_scope"] not in {"all", "beginner"}:
+            raise ValueError("default_scope 必须为 all 或 beginner")
+        if any(isinstance(v, bool) or not str(v).strip() for v in values["settings_admin_ids"]):
+            raise ValueError("settings_admin_ids 的成员必须为非空 ID")
+        values["settings_admin_ids"] = tuple(str(v).strip() for v in values["settings_admin_ids"])
+        if any(
+            not isinstance(v, str) or not normalize(v) for v in values["default_blocked_keywords"]
+        ):
+            raise ValueError("default_blocked_keywords 的成员必须为非空字符串")
+        values["default_blocked_keywords"] = tuple(
+            dict.fromkeys(v.strip() for v in values["default_blocked_keywords"])
+        )
+        for key in ("beginner_include", "beginner_exclude"):
+            rules = {}
+            for rule in values[key]:
+                platform, _, keyword = str(rule).partition(":")
+                if platform.strip() not in PLATFORMS or not normalize(keyword):
+                    raise ValueError(f"{key} 的规则应为 平台:关键词，例如 codeforces:Div. 2")
+                rules.setdefault(platform.strip(), []).append(normalize(keyword))
+            values[key] = MappingProxyType({p: tuple(k) for p, k in rules.items()})
         values["zone"] = ZoneInfo(values["timezone"])
         for platform in PLATFORMS:
             parsed = urlparse(values[f"{platform}_url"])

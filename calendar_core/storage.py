@@ -31,6 +31,18 @@ class Store:
                 status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0,
                 retry_at REAL NOT NULL DEFAULT 0, expires REAL NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS seen_contests (
+                session TEXT NOT NULL, contest TEXT NOT NULL, start_time INTEGER NOT NULL,
+                PRIMARY KEY (session, contest)
+            );
+            CREATE TABLE IF NOT EXISTS seen_baselines (
+                session TEXT NOT NULL, platform TEXT NOT NULL, created REAL NOT NULL,
+                PRIMARY KEY (session, platform)
+            );
+            CREATE TABLE IF NOT EXISTS session_settings (
+                session TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL,
+                PRIMARY KEY (session, key)
+            );
         """)
         state = "pending" if recovery_policy == "retry" else "uncertain"
         await self.db.execute(
@@ -86,6 +98,91 @@ class Store:
             )
             await self.db.commit()
 
+    async def mark(self, jobs):
+        """写入只用于防重的占位记录（如合并进其他提醒的比赛），永不发送。"""
+        async with self.lock:
+            await self.db.executemany(
+                "INSERT OR IGNORE INTO notified_events(key,target,payload,status,expires) "
+                "VALUES (?,?,'','merged',?)",
+                jobs,
+            )
+            await self.db.commit()
+
+    async def existing(self, keys):
+        if not keys:
+            return set()
+        async with self.lock:
+            async with self.db.execute(
+                f"SELECT key FROM notified_events WHERE key IN ({','.join('?' * len(keys))})",
+                list(keys),
+            ) as cursor:
+                return {r["key"] for r in await cursor.fetchall()}
+
+    async def seen(self, session):
+        async with self.lock:
+            async with self.db.execute(
+                "SELECT contest,start_time FROM seen_contests WHERE session=?", (session,)
+            ) as cursor:
+                return {r["contest"]: r["start_time"] for r in await cursor.fetchall()}
+
+    async def baselined(self, session):
+        async with self.lock:
+            async with self.db.execute(
+                "SELECT platform FROM seen_baselines WHERE session=?", (session,)
+            ) as cursor:
+                return {r["platform"] for r in await cursor.fetchall()}
+
+    async def baseline(self, session, platform, contests, now):
+        """首次见到某会话/平台时静默记录已有比赛，升级或新启用都不补推旧赛历。"""
+        async with self.lock:
+            await self.db.executemany(
+                "INSERT OR REPLACE INTO seen_contests VALUES (?,?,?)",
+                [(session, f"{c.platform}:{c.id}", c.start_time) for c in contests],
+            )
+            await self.db.execute(
+                "INSERT OR IGNORE INTO seen_baselines VALUES (?,?,?)", (session, platform, now)
+            )
+            await self.db.commit()
+
+    async def enqueue_daily(self, jobs, session, contests):
+        """日报分页与“已见过”记录同一事务提交，避免重启后重复或漏推。"""
+        async with self.lock:
+            await self.db.executemany(
+                "INSERT OR IGNORE INTO notified_events(key,target,payload,expires) "
+                "VALUES (?,?,?,?)",
+                [job for job in jobs if job[2]],
+            )
+            await self.db.executemany(
+                "INSERT OR IGNORE INTO notified_events(key,target,payload,status,expires) "
+                "VALUES (?,?,'','sent',?)",
+                [(key, target, expires) for key, target, payload, expires in jobs if not payload],
+            )
+            await self.db.executemany(
+                "INSERT OR REPLACE INTO seen_contests VALUES (?,?,?)",
+                [(session, f"{c.platform}:{c.id}", c.start_time) for c in contests],
+            )
+            await self.db.commit()
+
+    async def settings(self, session):
+        async with self.lock:
+            async with self.db.execute(
+                "SELECT key,value FROM session_settings WHERE session=?", (session,)
+            ) as cursor:
+                return {r["key"]: json.loads(r["value"]) for r in await cursor.fetchall()}
+
+    async def set_setting(self, session, key, value):
+        async with self.lock:
+            await self.db.execute(
+                "INSERT OR REPLACE INTO session_settings VALUES (?,?,?)",
+                (session, key, json.dumps(value, ensure_ascii=False)),
+            )
+            await self.db.commit()
+
+    async def reset_settings(self, session):
+        async with self.lock:
+            await self.db.execute("DELETE FROM session_settings WHERE session=?", (session,))
+            await self.db.commit()
+
     async def exists_prefix(self, prefix):
         async with self.lock:
             async with self.db.execute(
@@ -128,6 +225,7 @@ class Store:
     async def cleanup(self, cutoff):
         async with self.lock:
             await self.db.execute("DELETE FROM notified_events WHERE expires<?", (cutoff,))
+            await self.db.execute("DELETE FROM seen_contests WHERE start_time<?", (cutoff,))
             await self.db.commit()
 
     async def unresolved(self):
