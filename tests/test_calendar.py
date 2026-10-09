@@ -515,6 +515,9 @@ async def test_close_reminders_merge_and_never_repeat(tmp_path):
         body = sent[0][1]
         assert "约 60 分钟后开赛" in body and body.count("•") == 2
         assert "Div.1: https://example.com/codeforces/1" in body and "Other Round" in body
+        jobs = {r["key"].split("|")[1]: r for r in await store.jobs("notice|")}
+        assert jobs[rows[0].key]["expires"] == rows[2].start_time
+        assert jobs[rows[2].key]["status"] == "merged"
         await scheduler.tick(NOW + timedelta(minutes=10))
         assert len(sent) == 1  # Other Round 已并入，不再单独提醒
         await scheduler.tick(NOW + timedelta(minutes=60))

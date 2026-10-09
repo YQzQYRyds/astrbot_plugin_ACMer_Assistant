@@ -114,9 +114,11 @@ class Scheduler:
                 taken = await self.store.existing(list(others))
                 group = [c for c in group if f"notice|{c.key}|{minute}|{tk}" not in taken]
                 body = reminders(group, now, self.config)
-                await self.store.enqueue([(key, target, body, contest.start_time)])
-                await self.store.mark(
-                    [(k, target, c.start_time) for k, c in others.items() if k not in taken]
+                # 有效期延续到合并中最晚开赛的一场，避免重试越过首场后后续比赛漏提醒。
+                expires = max(c.start_time for c in group)
+                await self.store.enqueue_merged(
+                    (key, target, body, expires),
+                    [(k, target, c.start_time) for k, c in others.items() if k not in taken],
                 )
                 handled.update(c.key for c in group)
             handled.add(contest.key)

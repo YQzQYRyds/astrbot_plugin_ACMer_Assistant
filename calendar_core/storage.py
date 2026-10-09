@@ -98,13 +98,18 @@ class Store:
             )
             await self.db.commit()
 
-    async def mark(self, jobs):
-        """写入只用于防重的占位记录（如合并进其他提醒的比赛），永不发送。"""
+    async def enqueue_merged(self, job, marks):
+        """合并提醒与其余比赛的防重占位同一事务提交；占位永不发送。"""
         async with self.lock:
+            await self.db.execute(
+                "INSERT OR IGNORE INTO notified_events(key,target,payload,expires) "
+                "VALUES (?,?,?,?)",
+                job,
+            )
             await self.db.executemany(
                 "INSERT OR IGNORE INTO notified_events(key,target,payload,status,expires) "
                 "VALUES (?,?,'','merged',?)",
-                jobs,
+                marks,
             )
             await self.db.commit()
 
